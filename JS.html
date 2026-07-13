@@ -1,0 +1,314 @@
+<script>
+let SEMUA_BILIK = [];
+
+// ================== INIT ==================
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('tarikhTempah').min = new Date().toISOString().split('T')[0];
+  muatSenaraiBilik();
+  isiPilihanLaporan();
+
+  document.getElementById('formTempahan').addEventListener('submit', hantarBorang);
+  ['pilihBilik','tarikhTempah','masaMula','masaTamat'].forEach(id => {
+    document.getElementById(id).addEventListener('change', semakSlotLive);
+  });
+});
+
+function isiPilihanLaporan() {
+  const namaBulan = ['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'];
+  const selBulan = document.getElementById('laporanBulan');
+  const selTahun = document.getElementById('laporanTahun');
+  const skrgD = new Date();
+
+  namaBulan.forEach((nama, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx + 1;
+    opt.textContent = nama;
+    if (idx + 1 === skrgD.getMonth() + 1) opt.selected = true;
+    selBulan.appendChild(opt);
+  });
+
+  const tahunSkrg = skrgD.getFullYear();
+  for (let y = tahunSkrg - 1; y <= tahunSkrg + 1; y++) {
+    const opt = document.createElement('option');
+    opt.value = y;
+    opt.textContent = y;
+    if (y === tahunSkrg) opt.selected = true;
+    selTahun.appendChild(opt);
+  }
+}
+
+// ================== NAVIGASI TAB ==================
+function papar(tab) {
+  document.querySelectorAll('.tab-view').forEach(el => el.classList.add('d-none'));
+  document.getElementById('view-' + tab).classList.remove('d-none');
+
+  document.querySelectorAll('#mainTab .nav-link').forEach(el => el.classList.remove('active'));
+  document.querySelector('#mainTab .nav-link[data-tab="' + tab + '"]').classList.add('active');
+
+  if (tab === 'kalendar' && document.getElementById('kalendarBilik').value) {
+    muatKalendar();
+  }
+  if (tab === 'admin') {
+    muatAdmin();
+  }
+}
+
+// ================== SENARAI BILIK ==================
+function muatSenaraiBilik() {
+  google.script.run.withSuccessHandler(bilikList => {
+    SEMUA_BILIK = bilikList;
+    const opsPilih = document.getElementById('pilihBilik');
+    const opsKalendar = document.getElementById('kalendarBilik');
+    const opsAdmin = document.getElementById('filterBilikAdmin');
+
+    bilikList.forEach(b => {
+      const opt1 = document.createElement('option');
+      opt1.value = b.nama;
+      opt1.textContent = b.nama + ' (kapasiti ' + b.kapasiti + ')';
+      opsPilih.appendChild(opt1);
+
+      const opt2 = document.createElement('option');
+      opt2.value = b.nama;
+      opt2.textContent = b.nama;
+      opsKalendar.appendChild(opt2);
+
+      const opt3 = document.createElement('option');
+      opt3.value = b.nama;
+      opt3.textContent = b.nama;
+      opsAdmin.appendChild(opt3);
+    });
+  }).getBilikList();
+}
+
+// ================== SEMAK SLOT LIVE (semasa isi borang) ==================
+function semakSlotLive() {
+  const bilik = document.getElementById('pilihBilik').value;
+  const tarikh = document.getElementById('tarikhTempah').value;
+  const masaMula = document.getElementById('masaMula').value;
+  const masaTamat = document.getElementById('masaTamat').value;
+  const statusDiv = document.getElementById('statusSlot');
+  const btn = document.getElementById('btnHantar');
+
+  statusDiv.innerHTML = '';
+  btn.disabled = false;
+
+  if (!bilik || !tarikh || !masaMula || !masaTamat) return;
+
+  if (masaMula >= masaTamat) {
+    statusDiv.innerHTML = '<div class="alert alert-warning mb-0">⚠️ Masa tamat mesti selepas masa mula.</div>';
+    btn.disabled = true;
+    return;
+  }
+
+  statusDiv.innerHTML = '<div class="text-muted small">Menyemak ketersediaan slot...</div>';
+
+  google.script.run
+    .withSuccessHandler(tersedia => {
+      if (tersedia) {
+        statusDiv.innerHTML = '<div class="alert alert-success mb-0">✅ Slot tersedia!</div>';
+        btn.disabled = false;
+      } else {
+        statusDiv.innerHTML = '<div class="alert alert-danger mb-0">❌ Slot penuh! Bilik ini telah ditempah pada masa tersebut.</div>';
+        btn.disabled = true;
+      }
+    })
+    .semakSlotTersedia(bilik, tarikh, masaMula, masaTamat);
+}
+
+// ================== HANTAR TEMPAHAN ==================
+function hantarBorang(e) {
+  e.preventDefault();
+  const btn = document.getElementById('btnHantar');
+  const asalTeks = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menghantar...';
+
+  const borang = {
+    namaGuru: document.getElementById('namaGuru').value.trim(),
+    emel: document.getElementById('emelGuru').value.trim(),
+    bilik: document.getElementById('pilihBilik').value,
+    tarikh: document.getElementById('tarikhTempah').value,
+    masaMula: document.getElementById('masaMula').value,
+    masaTamat: document.getElementById('masaTamat').value,
+    tujuan: document.getElementById('tujuanTempah').value.trim()
+  };
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = asalTeks;
+      const mesejDiv = document.getElementById('mesejTempah');
+
+      if (res.ok) {
+        mesejDiv.innerHTML = '<div class="alert alert-success rounded-4">✅ ' + res.mesej + '</div>';
+        document.getElementById('formTempahan').reset();
+        document.getElementById('statusSlot').innerHTML = '';
+        tunjukToast(res.mesej, 'success');
+      } else {
+        mesejDiv.innerHTML = '<div class="alert alert-danger rounded-4">❌ ' + res.mesej + '</div>';
+        tunjukToast(res.mesej, 'danger');
+      }
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = asalTeks;
+      tunjukToast('Ralat: ' + err.message, 'danger');
+    })
+    .hantarTempahan(borang);
+}
+
+// ================== KALENDAR VIEW ==================
+function muatKalendar() {
+  const bilik = document.getElementById('kalendarBilik').value;
+  const div = document.getElementById('kalendarSenarai');
+  if (!bilik) { div.innerHTML = ''; return; }
+
+  div.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm-teal"></span></div>';
+
+  google.script.run.withSuccessHandler(senarai => {
+    if (!senarai.length) {
+      div.innerHTML = '<div class="empty-state">📭 Belum ada tempahan untuk bilik ini.</div>';
+      return;
+    }
+
+    senarai.sort((a, b) => new Date(a.tarikh + ' ' + a.masaMula) - new Date(b.tarikh + ' ' + b.masaMula));
+
+    let html = '';
+    senarai.forEach(t => {
+      const statusClass = t.status === 'Diluluskan' ? 'diluluskan' : (t.status === 'Ditolak' ? 'ditolak' : 'menunggu');
+      const badgeClass = t.status === 'Diluluskan' ? 'badge-diluluskan' : (t.status === 'Ditolak' ? 'badge-ditolak' : 'badge-menunggu');
+      html += '<div class="slot-card ' + statusClass + '">' +
+        '<div class="d-flex justify-content-between align-items-start">' +
+          '<div>' +
+            '<div class="fw-semibold">' + formatTarikhPaparan(t.tarikh) + '</div>' +
+            '<div class="small text-muted">🕐 ' + t.masaMula + ' - ' + t.masaTamat + '</div>' +
+            '<div class="small mt-1">' + t.tujuan + '</div>' +
+            '<div class="small text-muted">👤 ' + t.namaGuru + '</div>' +
+          '</div>' +
+          '<span class="badge-status ' + badgeClass + '">' + t.status + '</span>' +
+        '</div>' +
+      '</div>';
+    });
+    div.innerHTML = html;
+  }).getTempahanUntukKalendar(bilik);
+}
+
+function formatTarikhPaparan(tarikhStr) {
+  const d = new Date(tarikhStr + 'T00:00:00');
+  const hari = ['Ahad','Isnin','Selasa','Rabu','Khamis','Jumaat','Sabtu'];
+  const bulan = ['Jan','Feb','Mac','Apr','Mei','Jun','Jul','Ogo','Sep','Okt','Nov','Dis'];
+  return hari[d.getDay()] + ', ' + d.getDate() + ' ' + bulan[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+// ================== DASHBOARD ADMIN ==================
+function muatAdmin() {
+  const filter = document.getElementById('filterBilikAdmin').value || 'Semua';
+  const div = document.getElementById('adminSenarai');
+  div.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm-teal"></span></div>';
+
+  google.script.run.withSuccessHandler(senarai => {
+    if (!senarai.length) {
+      div.innerHTML = '<div class="empty-state">📭 Tiada tempahan dijumpai.</div>';
+      return;
+    }
+
+    let html = '';
+    senarai.forEach(t => {
+      const badgeClass = t.status === 'Diluluskan' ? 'badge-diluluskan' : (t.status === 'Ditolak' ? 'badge-ditolak' : 'badge-menunggu');
+      html += '<div class="admin-row">' +
+        '<div class="d-flex justify-content-between align-items-start mb-2">' +
+          '<div class="fw-semibold">' + t.bilik + '</div>' +
+          '<span class="badge-status ' + badgeClass + '">' + t.status + '</span>' +
+        '</div>' +
+        '<div class="small text-muted mb-1">📅 ' + formatTarikhPaparan(t.tarikh) + ' &nbsp; 🕐 ' + t.masaMula + '-' + t.masaTamat + '</div>' +
+        '<div class="small mb-1">📝 ' + t.tujuan + '</div>' +
+        '<div class="small text-muted mb-2">👤 ' + t.namaGuru + ' &nbsp; ✉️ ' + t.emel + '</div>' +
+        (t.status === 'Menunggu' ?
+          '<div class="d-flex gap-2">' +
+            '<button class="btn btn-success btn-sm flex-fill" onclick="ubahStatus(\'' + t.id + '\',\'Diluluskan\')">✅ Lulus</button>' +
+            '<button class="btn btn-outline-danger btn-sm flex-fill" onclick="ubahStatus(\'' + t.id + '\',\'Ditolak\')">❌ Tolak</button>' +
+          '</div>'
+          : '<button class="btn btn-outline-secondary btn-sm w-100" onclick="hapusTempahan(\'' + t.id + '\')">🗑️ Padam Rekod</button>'
+        ) +
+      '</div>';
+    });
+    div.innerHTML = html;
+  }).getSemuaTempahan(filter);
+}
+
+function ubahStatus(id, status) {
+  google.script.run.withSuccessHandler(res => {
+    tunjukToast(res.mesej, res.ok ? 'success' : 'danger');
+    muatAdmin();
+  }).kemaskiniStatus(id, status);
+}
+
+function hapusTempahan(id) {
+  if (!confirm('Padam rekod tempahan ini?')) return;
+  google.script.run.withSuccessHandler(res => {
+    tunjukToast(res.ok ? 'Rekod dipadam.' : res.mesej, res.ok ? 'success' : 'danger');
+    muatAdmin();
+  }).padamTempahan(id);
+}
+
+// ================== TOAST ==================
+function tunjukToast(mesej, jenis) {
+  const toastEl = document.getElementById('toastMesej');
+  const body = document.getElementById('toastBody');
+  toastEl.className = 'toast align-items-center text-white border-0 bg-' + (jenis === 'success' ? 'success' : 'danger');
+  body.textContent = mesej;
+  const toast = new bootstrap.Toast(toastEl, { delay: 3500 });
+  toast.show();
+}
+
+// ================== LAPORAN BULANAN (PDF) ==================
+function janaLaporan() {
+  const bulan = document.getElementById('laporanBulan').value;
+  const tahun = document.getElementById('laporanTahun').value;
+  const bilik = document.getElementById('filterBilikAdmin').value || 'Semua';
+
+  const btn = document.getElementById('btnLaporan');
+  const asalTeks = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Menjana laporan...';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.innerHTML = asalTeks;
+
+      if (res.ok) {
+        muatTurunPDF(res.base64, res.filename);
+        tunjukToast('Laporan dimuat turun (' + res.jumlah + ' rekod).', 'success');
+      } else {
+        tunjukToast(res.mesej, 'danger');
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.innerHTML = asalTeks;
+      tunjukToast('Ralat: ' + err.message, 'danger');
+    })
+    .janaLaporanPDF(bulan, tahun, bilik);
+}
+
+function muatTurunPDF(base64Data, namaFail) {
+  const byteChars = atob(base64Data);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) {
+    byteNumbers[i] = byteChars.charCodeAt(i);
+  }
+  const byteArray = new Uint8Array(byteNumbers);
+  const blob = new Blob([byteArray], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = namaFail;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+</script>
